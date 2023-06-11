@@ -3,8 +3,6 @@
 #include <WiFiClient.h>
 #include <FirebaseESP32.h>
 
-#define LED_BUILTIN 2
-
 #define SENSOR1 26
 #define SENSOR2 27
 
@@ -44,35 +42,9 @@ void IRAM_ATTR pulseCounter2()
 	pulseCount2++;
 }
 
-#define FIREBASE_HOST "https://pamsimas-firebase-default-rtdb.asia-southeast1.firebasedatabase.app/"
-#define FIREBASE_AUTH "AIzaSyAzyAYysQNeR4LtxCo3OmpK-WfJ3XHxnY0"
-
-FirebaseData firebaseData;
-
-void connectToWiFi() {
-    const char * ssid = "Revaille12";
-    const char * password = "revaille12";
-
-    WiFi.begin(ssid, password);
-
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(1000);
-        Serial.print(".");
-    }
-	
-    Serial.println();
-    Serial.println("Wi-Fi connected");
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
-}
-
 void setup()
 {
 	Serial.begin(115200);
-
-	connectToWiFi();
-
-	pinMode(LED_BUILTIN, OUTPUT);
 
 	pinMode(SENSOR1, INPUT_PULLUP);
 	pinMode(SENSOR2, INPUT_PULLUP);
@@ -90,28 +62,12 @@ void setup()
 	previousMillis1 = 0;
 	previousMillis2 = 0;
 
-	Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
-    Firebase.reconnectWiFi(true);
-
 	attachInterrupt(digitalPinToInterrupt(SENSOR1), pulseCounter1, FALLING);
 	attachInterrupt(digitalPinToInterrupt(SENSOR2), pulseCounter2, FALLING);
 }
 
 void loop()
 {
-	if (WiFi.status() == WL_CONNECTED) {
-		digitalWrite(LED_BUILTIN, HIGH);
-		delay(1000);
-		digitalWrite(LED_BUILTIN, LOW); 
-		delay(1000);
-	}
-
-	if (pulseCount1 > 0) {
-		Firebase.setBoolAsync(firebaseData, "/Status/isRunning", true);
-	} else {
-		Firebase.setBoolAsync(firebaseData, "/Status/isRunning", false);
-	}
-
 	currentMillis1 = millis();
 	currentMillis2 = millis();
 
@@ -128,9 +84,16 @@ void loop()
 
 		totalMilliLitres1 += flowMilliLitres1;
 
-		Firebase.setFloatAsync(firebaseData, "/Sensors/FlowRate1", flowRate1);
-		Firebase.setIntAsync(firebaseData, "/Sensors/totalMilliLitres1", totalMilliLitres1);
-		Firebase.setFloatAsync(firebaseData, "/Sensors/pulseCount1", pulse1Sec1);
+        Serial.print("Flow rate: ");
+        Serial.print(int(flowRate1));
+        Serial.print("L/min");
+        Serial.print("\t");
+
+        Serial.print("Output Liquid Quantity: ");
+        Serial.print(totalMilliLitres1);
+        Serial.print("mL / ");
+        Serial.print(totalMilliLitres1 / 1000);
+        Serial.println("L");
 	}
 
 	if (currentMillis2 - previousMillis2 > interval) {
@@ -146,12 +109,17 @@ void loop()
 
 		totalMilliLitres2 += flowMilliLitres2;
 
-        Firebase.setFloatAsync(firebaseData, "/Sensors/FlowRate2", flowRate2);
-		Firebase.setIntAsync(firebaseData, "/Sensors/totalMilliLitres2", totalMilliLitres2);
-		Firebase.setFloatAsync(firebaseData, "/Sensors/pulseCount2", pulse1Sec2);
-	}
+        Serial.print("Flow rate: ");
+        Serial.print(int(flowRate1));
+        Serial.print("L/min");
+        Serial.print("\t");
 
-	Firebase.setIntAsync(firebaseData, "/Status/dayTotalVolume", totalMilliLitres1);
+        Serial.print("Output Liquid Quantity: ");
+        Serial.print(totalMilliLitres1);
+        Serial.print("mL / ");
+        Serial.print(totalMilliLitres1 / 1000);
+        Serial.println("L");	
+    }
 
 	if (flowRate1 > (flowRate2 + (flowRate2 * 0.1))) {
 		if (!leakDetected) {
@@ -159,27 +127,27 @@ void loop()
 			recheckLeak = true;
 			recheckTime = currentMillis1 + 5000;
 
-			Firebase.setBool(firebaseData, "/Status/LeakDetected", true); 
-		} else {
-			if (currentMillis1 - leakDetectedTime >= 5000) {
+            Serial.println("\nLeak Detected\n");
+        }
+        else
+        {
+            if (currentMillis1 - leakDetectedTime >= 5000) {
 				recheckLeak = false;
 
-				Firebase.setBool(firebaseData, "/Status/LeakConfirmed", true);
+                Serial.println("\n!!!!!!!!!!!! Leak Confirmed !!!!!!!!!!!!\n");
 			} else if (recheckLeak && currentMillis1 >= recheckTime) {
 				if (flowRate1 < (flowRate2 + (flowRate2 * 0.1))) {
 					recheckLeak = false;
 				}
-				Firebase.setBool(firebaseData, "/Status/LeakConfirmed", false); 
-				Firebase.setBool(firebaseData, "/Status/LeakDetected", false); 
+                Serial.println("\nLeak Resolved\n");
 			}
-		}
-		leakDetected = true;
+        }
+        leakDetected = true;
 	} else {
 		if (leakDetected) {
 			leakDetected = false;
 			recheckLeak = false;
 		}
-		Firebase.setBool(firebaseData, "/Status/LeakConfirmed", false); 
-		Firebase.setBool(firebaseData, "/Status/LeakDetected", false);
+        Serial.println("\nLeak Resolved\n");
 	}
 }
