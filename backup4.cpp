@@ -13,7 +13,7 @@ long currentMillis2 = 0;
 long previousMillis2 = 0;
 
 int interval = 1000;
-float calibrationFactor = 1.6;
+float calibrationFactor = 6.6;
 
 volatile byte pulseCount1;
 byte pulse1Sec1 = 0;
