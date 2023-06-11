@@ -84,12 +84,12 @@ void loop()
 
 		totalMilliLitres1 += flowMilliLitres1;
 
-        Serial.print("Flow rate: ");
+        Serial.print("Flow rate 1: ");
         Serial.print(int(flowRate1));
         Serial.print("L/min");
         Serial.print("\t");
 
-        Serial.print("Output Liquid Quantity: ");
+        Serial.print("Output Liquid Quantity 1: ");
         Serial.print(totalMilliLitres1);
         Serial.print("mL / ");
         Serial.print(totalMilliLitres1 / 1000);
@@ -109,12 +109,12 @@ void loop()
 
 		totalMilliLitres2 += flowMilliLitres2;
 
-        Serial.print("Flow rate: ");
+        Serial.print("Flow rate 2: ");
         Serial.print(int(flowRate1));
         Serial.print("L/min");
         Serial.print("\t");
 
-        Serial.print("Output Liquid Quantity: ");
+        Serial.print("Output Liquid Quantity 2: ");
         Serial.print(totalMilliLitres1);
         Serial.print("mL / ");
         Serial.print(totalMilliLitres1 / 1000);
