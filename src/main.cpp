@@ -4,18 +4,14 @@
 #include <FirebaseESP32.h>
 
 #define LED_BUILTIN 2
-
 #define SENSOR1 26
 #define SENSOR2 27
 
-long currentMillis1 = 0;
-long previousMillis1 = 0;
-
-long currentMillis2 = 0;
-long previousMillis2 = 0;
+long currentMillis = 0;
+long previousMillis = 0;
 
 int interval = 1000;
-float calibrationFactor = 1.6;
+float calibrationFactor = 6.6;
 
 volatile byte pulseCount1;
 byte pulse1Sec1 = 0;
@@ -50,8 +46,8 @@ void IRAM_ATTR pulseCounter2()
 FirebaseData firebaseData;
 
 void connectToWiFi() {
-    const char * ssid = "Revaille12";
-    const char * password = "revaille12";
+    const char * ssid = "_blank";
+    const char * password = "_bl4nk_123";
 
     WiFi.begin(ssid, password);
 
@@ -87,8 +83,7 @@ void setup()
 	flowMilliLitres2 = 0;
 	totalMilliLitres2 = 0;
 
-	previousMillis1 = 0;
-	previousMillis2 = 0;
+	previousMillis = 0;
 
 	Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
     Firebase.reconnectWiFi(true);
@@ -100,86 +95,77 @@ void setup()
 void loop()
 {
 	if (WiFi.status() == WL_CONNECTED) {
-		digitalWrite(LED_BUILTIN, HIGH);
-		delay(1000);
-		digitalWrite(LED_BUILTIN, LOW); 
-		delay(1000);
-	}
+        digitalWrite(LED_BUILTIN, HIGH);
+    } else {
+        digitalWrite(LED_BUILTIN, LOW);
+        delay(1000);
+        connectToWiFi();
+    }
 
-	if (pulseCount1 > 0) {
-		Firebase.setBoolAsync(firebaseData, "/Status/isRunning", true);
-	} else {
-		Firebase.setBoolAsync(firebaseData, "/Status/isRunning", false);
-	}
+	currentMillis = millis();
 
-	currentMillis1 = millis();
-	currentMillis2 = millis();
-
-	if (currentMillis1 - previousMillis1 > interval) {
+	if (currentMillis - previousMillis > interval) {
 		
 		pulse1Sec1 = pulseCount1;
-		pulseCount1 = 0;
-
-		flowRate1 = ((1000.0 / (millis() - previousMillis1)) * pulse1Sec1) / calibrationFactor;
-
-		previousMillis1 = millis();
-
-		flowMilliLitres1 = (flowRate1 / 60) * 1000;
-
-		totalMilliLitres1 += flowMilliLitres1;
-
-		Firebase.setFloatAsync(firebaseData, "/Sensors/FlowRate1", flowRate1);
-		Firebase.setIntAsync(firebaseData, "/Sensors/totalMilliLitres1", totalMilliLitres1);
-		Firebase.setFloatAsync(firebaseData, "/Sensors/pulseCount1", pulse1Sec1);
-	}
-
-	if (currentMillis2 - previousMillis2 > interval) {
-		
 		pulse1Sec2 = pulseCount2;
+
+		pulseCount1 = 0;
 		pulseCount2 = 0;
 
-		flowRate2 = ((1000.0 / (millis() - previousMillis2)) * pulse1Sec2) / calibrationFactor;
+		flowRate1 = ((1000.0 / (currentMillis - previousMillis)) * pulse1Sec1) / calibrationFactor;
+		flowRate2 = ((1000.0 / (currentMillis - previousMillis)) * pulse1Sec2) / calibrationFactor;
 
-		previousMillis2 = millis();
+		previousMillis = millis();
 
+		flowMilliLitres1 = (flowRate1 / 60) * 1000;
 		flowMilliLitres2 = (flowRate2 / 60) * 1000;
 
+		totalMilliLitres1 += flowMilliLitres1;
 		totalMilliLitres2 += flowMilliLitres2;
 
-        Firebase.setFloatAsync(firebaseData, "/Sensors/FlowRate2", flowRate2);
-		Firebase.setIntAsync(firebaseData, "/Sensors/totalMilliLitres2", totalMilliLitres2);
-		Firebase.setFloatAsync(firebaseData, "/Sensors/pulseCount2", pulse1Sec2);
-	}
+		FirebaseJson json;
+        json.set("Sensors/FlowRate1", flowRate1);
+        json.set("Sensors/totalMilliLitres1", totalMilliLitres1);
+        json.set("Sensors/pulseCount1", pulse1Sec1);
+        json.set("Sensors/FlowRate2", flowRate2);
+        json.set("Sensors/totalMilliLitres2", totalMilliLitres2);
+        json.set("Sensors/pulseCount2", pulse1Sec2);
+        json.set("Status/isRunning", pulse1Sec1 > 0);
+		
+		if (flowRate1 > (flowRate2 + (flowRate2 * 0.1))) {
+			if (!leakDetected) {
+				leakDetectedTime = currentMillis;
+				recheckLeak = true;
+				recheckTime = currentMillis + 5000;
 
-	Firebase.setIntAsync(firebaseData, "/Status/dayTotalVolume", totalMilliLitres1);
-
-	if (flowRate1 > (flowRate2 + (flowRate2 * 0.1))) {
-		if (!leakDetected) {
-			leakDetectedTime = currentMillis1;
-			recheckLeak = true;
-			recheckTime = currentMillis1 + 5000;
-
-			Firebase.setBool(firebaseData, "/Status/LeakDetected", true); 
-		} else {
-			if (currentMillis1 - leakDetectedTime >= 5000) {
-				recheckLeak = false;
-
-				Firebase.setBool(firebaseData, "/Status/LeakConfirmed", true);
-			} else if (recheckLeak && currentMillis1 >= recheckTime) {
-				if (flowRate1 < (flowRate2 + (flowRate2 * 0.1))) {
-					recheckLeak = false;
-				}
-				Firebase.setBool(firebaseData, "/Status/LeakConfirmed", false); 
-				Firebase.setBool(firebaseData, "/Status/LeakDetected", false); 
+				json.set("Status/LeakDetected", true);
+				json.set("Status/LeakConfirmed", false);	
 			}
+			else
+			{
+				if (currentMillis - leakDetectedTime >= 5000) {
+					recheckLeak = false;
+
+					json.set("/Status/LeakConfirmed", true);	
+					json.set("Status/LeakDetected", true);		
+				} else if (recheckLeak && currentMillis >= recheckTime) {
+					if (flowRate1 < (flowRate2 + (flowRate2 * 0.1))) {
+						recheckLeak = false;
+					}
+					json.set("Status/LeakDetected", false);
+                    json.set("Status/LeakConfirmed", false);				
+				}
+			}
+			leakDetected = true;
+		} else {
+			if (leakDetected) {
+				leakDetected = false;
+				recheckLeak = false;
+			}
+			json.set("Status/LeakDetected", false);
+			json.set("Status/LeakConfirmed", false); 		
 		}
-		leakDetected = true;
-	} else {
-		if (leakDetected) {
-			leakDetected = false;
-			recheckLeak = false;
-		}
-		Firebase.setBool(firebaseData, "/Status/LeakConfirmed", false); 
-		Firebase.setBool(firebaseData, "/Status/LeakDetected", false);
+		String path = "/";
+		Firebase.updateNodeSilentAsync(firebaseData, path.c_str(), json);
 	}
 }
