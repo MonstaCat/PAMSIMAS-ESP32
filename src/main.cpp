@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <FirebaseESP32.h>
+#include <time.h>
 
 #define LED_BUILTIN 2
 #define SENSOR1 26
@@ -30,6 +31,12 @@ unsigned long leakDetectedTime = 0;
 boolean recheckLeak = false;
 unsigned long recheckTime = 0;
 
+unsigned long previousDay = 0;
+
+unsigned long pumpStartTime = 0;
+unsigned long pumpRunningTime = 0;
+boolean pumpRunning = false;
+
 void IRAM_ATTR pulseCounter1()
 {
 	pulseCount1++;
@@ -42,6 +49,11 @@ void IRAM_ATTR pulseCounter2()
 
 #define FIREBASE_HOST "https://pamsimas-firebase-default-rtdb.asia-southeast1.firebasedatabase.app/"
 #define FIREBASE_AUTH "AIzaSyAzyAYysQNeR4LtxCo3OmpK-WfJ3XHxnY0"
+
+const char* ntpServer = "pool.ntp.org";
+// GMT +7 25200, 7 * 60 * 60
+const long  gmtOffset_sec = 25200;
+const int   daylightOffset_sec = 0;
 
 FirebaseData firebaseData;
 
@@ -60,6 +72,27 @@ void connectToWiFi() {
     Serial.println("Wi-Fi connected");
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
+}
+
+void runningTimeLog(int Params)
+{
+	FirebaseData firebaseData;
+	struct tm timeinfo;
+
+	if (!getLocalTime(&timeinfo)) {
+		Serial.println("Failed to obtain time");
+		return;
+	}
+
+	char timeMonth[30];
+	char timeDay[30];
+	strftime(timeMonth, 30, "%B", &timeinfo);
+	strftime(timeDay, 30, "%d", &timeinfo);
+
+	char pathNode[50];
+	sprintf(pathNode, "%s/%s/%s/%s", "pumpRunningHistory", timeMonth, timeDay, "runningTime");
+
+	Firebase.setIntAsync(firebaseData, pathNode, Params);
 }
 
 void setup()
@@ -102,6 +135,12 @@ void loop()
         connectToWiFi();
     }
 
+	struct tm timeinfo;
+	if (!getLocalTime(&timeinfo)) {
+		Serial.println("Failed to obtain time");
+		return;
+	}
+
 	currentMillis = millis();
 
 	if (currentMillis - previousMillis > interval) {
@@ -130,7 +169,6 @@ void loop()
         json.set("Sensors/FlowRate2", flowRate2);
         json.set("Sensors/totalMilliLitres2", totalMilliLitres2);
         json.set("Sensors/pulseCount2", pulse1Sec2);
-        json.set("Status/isRunning", pulse1Sec1 > 0);
 		
 		if (flowRate1 > (flowRate2 + (flowRate2 * 0.1))) {
 			if (!leakDetected) {
@@ -140,13 +178,11 @@ void loop()
 
 				json.set("Status/LeakDetected", true);
 				json.set("Status/LeakConfirmed", false);	
-			}
-			else
-			{
+			} else {
 				if (currentMillis - leakDetectedTime >= 5000) {
 					recheckLeak = false;
 
-					json.set("/Status/LeakConfirmed", true);	
+					json.set("Status/LeakConfirmed", true);	
 					json.set("Status/LeakDetected", true);		
 				} else if (recheckLeak && currentMillis >= recheckTime) {
 					if (flowRate1 < (flowRate2 + (flowRate2 * 0.1))) {
@@ -165,7 +201,32 @@ void loop()
 			json.set("Status/LeakDetected", false);
 			json.set("Status/LeakConfirmed", false); 		
 		}
+
+		unsigned long currentDay = timeinfo.tm_mday;
+
+		if (currentDay != previousDay) {
+			pumpRunningTime = 0;
+			previousDay = currentDay;
+		}
+
+		if (pulse1Sec1 > 0) {
+			if (!pumpRunning) {
+				pumpRunning = true;
+				pumpStartTime = currentMillis;
+			}
+		} else {
+			if (pumpRunning) {
+				pumpRunning = false;
+				pumpRunningTime += currentMillis - pumpStartTime;
+			}
+		}
+		
+		unsigned long totalRunningSeconds = pumpRunningTime / 1000;
+		runningTimeLog(totalRunningSeconds);
+
 		String path = "/";
 		Firebase.updateNodeSilentAsync(firebaseData, path.c_str(), json);
+
+		configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 	}
 }
