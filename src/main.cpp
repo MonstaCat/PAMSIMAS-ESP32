@@ -50,12 +50,14 @@ void IRAM_ATTR pulseCounter2()
 #define FIREBASE_HOST "https://pamsimas-firebase-default-rtdb.asia-southeast1.firebasedatabase.app/"
 #define FIREBASE_AUTH "AIzaSyAzyAYysQNeR4LtxCo3OmpK-WfJ3XHxnY0"
 
-const char* ntpServer = "pool.ntp.org";
+const char* ntpServer = "0.id.pool.ntp.org";
 // GMT +7 25200, 7 * 60 * 60
 const long  gmtOffset_sec = 25200;
 const int   daylightOffset_sec = 0;
 
+struct tm timeinfo;
 FirebaseData firebaseData;
+FirebaseJson json;
 
 void connectToWiFi() {
     const char * ssid = "_blank";
@@ -76,9 +78,6 @@ void connectToWiFi() {
 
 void runningTimeLog(int Params)
 {
-	FirebaseData firebaseData;
-	struct tm timeinfo;
-
 	if (!getLocalTime(&timeinfo)) {
 		Serial.println("Failed to obtain time");
 		return;
@@ -135,12 +134,6 @@ void loop()
         connectToWiFi();
     }
 
-	struct tm timeinfo;
-	if (!getLocalTime(&timeinfo)) {
-		Serial.println("Failed to obtain time");
-		return;
-	}
-
 	currentMillis = millis();
 
 	if (currentMillis - previousMillis > interval) {
@@ -162,7 +155,6 @@ void loop()
 		totalMilliLitres1 += flowMilliLitres1;
 		totalMilliLitres2 += flowMilliLitres2;
 
-		FirebaseJson json;
         json.set("Sensors/FlowRate1", flowRate1);
         json.set("Sensors/totalMilliLitres1", totalMilliLitres1);
         json.set("Sensors/pulseCount1", pulse1Sec1);
@@ -202,7 +194,8 @@ void loop()
 			json.set("Status/LeakConfirmed", false); 		
 		}
 
-		unsigned long currentDay = timeinfo.tm_mday;
+		char timeDay[30];
+		unsigned long currentDay = strftime(timeDay, 30, "%d", &timeinfo);
 
 		if (currentDay != previousDay) {
 			pumpRunningTime = 0;
