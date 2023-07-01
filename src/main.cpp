@@ -33,6 +33,8 @@ unsigned long recheckTime = 0;
 
 unsigned long previousDay = 0;
 
+unsigned int totalMilliLitres1Today = 0;
+
 unsigned long pumpStartTime = 0;
 unsigned long pumpRunningTime = 0;
 boolean pumpRunning = false;
@@ -76,22 +78,28 @@ void connectToWiFi() {
     Serial.println(WiFi.localIP());
 }
 
-void runningTimeLog(int Params)
+void runningTimeLog(int Params, int totalMilliLitres1Today)
 {
 	if (!getLocalTime(&timeinfo)) {
 		Serial.println("Failed to obtain time");
 		return;
 	}
 
+	char timeYear[30];
 	char timeMonth[30];
 	char timeDay[30];
+	strftime(timeYear, 30, "%Y", &timeinfo);
 	strftime(timeMonth, 30, "%B", &timeinfo);
 	strftime(timeDay, 30, "%d", &timeinfo);
 
-	char pathNode[50];
-	sprintf(pathNode, "%s/%s/%s/%s", "pumpRunningHistory", timeMonth, timeDay, "runningTime");
+	char pathNode[100];
+	sprintf(pathNode, "pumpRunningHistory/%s/%s/%s", timeYear, timeMonth, timeDay);
 
-	Firebase.setIntAsync(firebaseData, pathNode, Params);
+	FirebaseJson updates;
+	updates.set("runningTime", Params);
+	updates.set("totalMilliLitres", totalMilliLitres1Today);
+
+	Firebase.updateNodeSilentAsync(firebaseData, pathNode, updates);
 }
 
 void setup()
@@ -161,6 +169,7 @@ void loop()
         json.set("Sensors/FlowRate2", flowRate2);
         json.set("Sensors/totalMilliLitres2", totalMilliLitres2);
         json.set("Sensors/pulseCount2", pulse1Sec2);
+		json.set("Status/isRunning", pulse1Sec1 > 0);
 		
 		if (flowRate1 > (flowRate2 + (flowRate2 * 0.1))) {
 			if (!leakDetected) {
@@ -199,8 +208,11 @@ void loop()
 
 		if (currentDay != previousDay) {
 			pumpRunningTime = 0;
+			totalMilliLitres1Today = 0;
 			previousDay = currentDay;
 		}
+
+		totalMilliLitres1Today += flowMilliLitres1;
 
 		if (pulse1Sec1 > 0) {
 			if (!pumpRunning) {
@@ -215,7 +227,7 @@ void loop()
 		}
 		
 		unsigned long totalRunningSeconds = pumpRunningTime / 1000;
-		runningTimeLog(totalRunningSeconds);
+		runningTimeLog(totalRunningSeconds, totalMilliLitres1Today);
 
 		String path = "/";
 		Firebase.updateNodeSilentAsync(firebaseData, path.c_str(), json);
