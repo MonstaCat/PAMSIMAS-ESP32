@@ -3,8 +3,8 @@
 #include <WiFiClient.h>
 #include <FirebaseESP32.h>
 #include <time.h>
+#include <HTTPClient.h>
 
-#define LED_BUILTIN 2
 #define SENSOR1 26
 #define SENSOR2 27
 
@@ -25,19 +25,12 @@ byte pulse1Sec2 = 0;
 float flowRate2;
 unsigned int flowMilliLitres2;
 unsigned long totalMilliLitres2;
+String statusMessage;
 
 boolean leakDetected = false;
 unsigned long leakDetectedTime = 0;
 boolean recheckLeak = false;
 unsigned long recheckTime = 0;
-
-unsigned long previousDay = 0;
-
-unsigned int totalMilliLitres1Today = 0;
-
-unsigned long pumpStartTime = 0;
-unsigned long pumpRunningTime = 0;
-boolean pumpRunning = false;
 
 void IRAM_ATTR pulseCounter1()
 {
@@ -49,21 +42,18 @@ void IRAM_ATTR pulseCounter2()
 	pulseCount2++;
 }
 
-#define FIREBASE_HOST "your_firebase_host"
-#define FIREBASE_AUTH "your_firebase_host"
-
 const char* ntpServer = "0.id.pool.ntp.org";
 // GMT +7 25200, 7 * 60 * 60
 const long  gmtOffset_sec = 25200;
 const int   daylightOffset_sec = 0;
 
+const char* serverUrl = "http://your_local_server/pamsimas_data_logging/log_data.php";
+
 struct tm timeinfo;
-FirebaseData firebaseData;
-FirebaseJson json;
 
 void connectToWiFi() {
-    const char * ssid = "your_wifi_ssid";
-    const char * password = "your_wifi_password";
+    const char * ssid = "_blank";
+    const char * password = "_bl4nk_123";
 
     WiFi.begin(ssid, password);
 
@@ -78,28 +68,23 @@ void connectToWiFi() {
     Serial.println(WiFi.localIP());
 }
 
-void runningTimeLog(int Params, int totalMilliLitres1Today)
+String getFormattedTime()
 {
-	if (!getLocalTime(&timeinfo)) {
-		Serial.println("Failed to obtain time");
-		return;
-	}
+    if (!getLocalTime(&timeinfo))
+    {
+        Serial.println("Failed to obtain time");
+        return ""; // Return an empty string in case of failure
+    }
 
-	char timeYear[30];
-	char timeMonth[30];
-	char timeDay[30];
-	strftime(timeYear, 30, "%Y", &timeinfo);
-	strftime(timeMonth, 30, "%B", &timeinfo);
-	strftime(timeDay, 30, "%d", &timeinfo);
+    char timeHour[3];
+    char timeMinute[3];
+    char timeSecond[3];
+    snprintf(timeHour, 3, "%02d", timeinfo.tm_hour);
+    snprintf(timeMinute, 3, "%02d", timeinfo.tm_min);
+    snprintf(timeSecond, 3, "%02d", timeinfo.tm_sec);
 
-	char pathNode[100];
-	sprintf(pathNode, "pumpRunningHistory/%s/%s/%s", timeYear, timeMonth, timeDay);
-
-	FirebaseJson updates;
-	updates.set("runningTime", Params);
-	updates.set("totalMilliLitres", totalMilliLitres1Today);
-
-	Firebase.updateNodeSilentAsync(firebaseData, pathNode, updates);
+    String formattedTime = String(timeHour) + ":" + String(timeMinute) + ":" + String(timeSecond);
+    return formattedTime;
 }
 
 void setup()
@@ -124,9 +109,6 @@ void setup()
 	totalMilliLitres2 = 0;
 
 	previousMillis = 0;
-
-	Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
-    Firebase.reconnectWiFi(true);
 
 	attachInterrupt(digitalPinToInterrupt(SENSOR1), pulseCounter1, FALLING);
 	attachInterrupt(digitalPinToInterrupt(SENSOR2), pulseCounter2, FALLING);
@@ -163,34 +145,25 @@ void loop()
 		totalMilliLitres1 += flowMilliLitres1;
 		totalMilliLitres2 += flowMilliLitres2;
 
-        json.set("Sensors/FlowRate1", flowRate1);
-        json.set("Sensors/totalMilliLitres1", totalMilliLitres1);
-        json.set("Sensors/pulseCount1", pulse1Sec1);
-        json.set("Sensors/FlowRate2", flowRate2);
-        json.set("Sensors/totalMilliLitres2", totalMilliLitres2);
-        json.set("Sensors/pulseCount2", pulse1Sec2);
-		json.set("Status/isRunning", pulse1Sec1 > 0);
-		
 		if (flowRate1 > (flowRate2 + (flowRate2 * 0.1))) {
 			if (!leakDetected) {
 				leakDetectedTime = currentMillis;
 				recheckLeak = true;
 				recheckTime = currentMillis + 5000;
 
-				json.set("Status/LeakDetected", true);
-				json.set("Status/LeakConfirmed", false);	
-			} else {
+				statusMessage = "Leak Detected";
+			}
+			else
+			{
 				if (currentMillis - leakDetectedTime >= 5000) {
 					recheckLeak = false;
 
-					json.set("Status/LeakConfirmed", true);	
-					json.set("Status/LeakDetected", true);		
+					statusMessage = "!!!!!!!!!!!! Leak Confirmed !!!!!!!!!!!!";
 				} else if (recheckLeak && currentMillis >= recheckTime) {
 					if (flowRate1 < (flowRate2 + (flowRate2 * 0.1))) {
 						recheckLeak = false;
 					}
-					json.set("Status/LeakDetected", false);
-                    json.set("Status/LeakConfirmed", false);				
+					statusMessage = "Leak Resolved";
 				}
 			}
 			leakDetected = true;
@@ -199,38 +172,28 @@ void loop()
 				leakDetected = false;
 				recheckLeak = false;
 			}
-			json.set("Status/LeakDetected", false);
-			json.set("Status/LeakConfirmed", false); 		
+			statusMessage = "Leak Resolved";
 		}
 
-		char timeDay[30];
-		unsigned long currentDay = strftime(timeDay, 30, "%d", &timeinfo);
+		String currentTime = getFormattedTime();
 
-		if (currentDay != previousDay) {
-			pumpRunningTime = 0;
-			totalMilliLitres1Today = 0;
-			previousDay = currentDay;
-		}
-
-		totalMilliLitres1Today += flowMilliLitres1;
-
-		if (pulse1Sec1 > 0) {
-			if (!pumpRunning) {
-				pumpRunning = true;
-				pumpStartTime = currentMillis;
-			}
+		String data = "time=" + currentTime +
+						"&flowRate1=" + String(flowRate1) +
+						"&flowRate2=" + String(flowRate2) +
+						"&totalMilliLitres1=" + String(totalMilliLitres1) +
+						"&totalMilliLitres2=" + String(totalMilliLitres2) +
+						"&status=" + statusMessage;
+						
+		HTTPClient http;
+		http.begin(serverUrl);
+		http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+		int httpResponseCode = http.POST(data);
+		if (httpResponseCode == HTTP_CODE_OK) {
+			Serial.println("Data logged successfully!");
 		} else {
-			if (pumpRunning) {
-				pumpRunning = false;
-				pumpRunningTime += currentMillis - pumpStartTime;
-			}
+			Serial.println("Failed to log data. Error code: " + String(httpResponseCode));
 		}
-		
-		unsigned long totalRunningSeconds = pumpRunningTime / 1000;
-		runningTimeLog(totalRunningSeconds, totalMilliLitres1Today);
-
-		String path = "/";
-		Firebase.updateNodeSilentAsync(firebaseData, path.c_str(), json);
+		http.end();
 
 		configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 	}

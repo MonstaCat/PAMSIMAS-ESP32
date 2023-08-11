@@ -40,14 +40,14 @@ void IRAM_ATTR pulseCounter2()
 	pulseCount2++;
 }
 
-#define FIREBASE_HOST "https://pamsimas-firebase-default-rtdb.asia-southeast1.firebasedatabase.app/"
-#define FIREBASE_AUTH "AIzaSyAzyAYysQNeR4LtxCo3OmpK-WfJ3XHxnY0"
+#define FIREBASE_HOST "your_firebase_host"
+#define FIREBASE_AUTH "your_firebase_auth"
 
 FirebaseData firebaseData;
 
 void connectToWiFi() {
-    const char * ssid = "_blank";
-    const char * password = "_bl4nk_123";
+    const char * ssid = "your_wifi_ssid";
+    const char * password = "your_wifi_password";
 
     WiFi.begin(ssid, password);
 
